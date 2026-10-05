@@ -22,26 +22,21 @@ type Store interface {
 
 type RamDatabase struct {
 	mu      sync.RWMutex
-	storage map[string]string // in-memory storage for now
-	Store                     // should I remove it or not?! as it is set to nil by default
+	storage map[string]string
 }
 
 func (db *RamDatabase) Read(id string) (origin string, exists bool) {
 	db.mu.RLock()
+	defer db.mu.RUnlock()
 	originalURL, exists := db.storage[id]
-	db.mu.RUnlock()
 	return originalURL, exists
 }
 
 func (db *RamDatabase) Write(id, origin string) error {
 	db.mu.Lock()
+	defer db.mu.Unlock()
 	db.storage[id] = origin // later change
-	db.mu.Unlock()
-	return nil // nothing for now!
-}
-
-type MapAlgorithm interface {
-	Shorten(origin string) (id string)
+	return nil              // nothing for now!
 }
 
 // request & response body structs
@@ -51,14 +46,12 @@ type ShortenReqBody struct {
 }
 
 type ShortenRspBody struct {
-	Code      string `json:"code"`
-	Short_url string `json:"short_url"`
+	Code     string `json:"code"`
+	ShortUrl string `json:"short_url"`
 }
 
-// for now, includes URL generator
 type Server struct {
-	db *RamDatabase // later: Store
-	MapAlgorithm
+	db Store
 }
 
 // needs massive refactore
@@ -68,10 +61,9 @@ func NewServer() *Server {
 }
 
 func (s *Server) Shorten(originalURL string) string {
-	// generate a short ID (for simplicity, use the length of the storage)
-	id := fmt.Sprintf("%d", len(s.db.storage)+1) // later we can use a better ID generation method (and safer!)
-	// problem with current id is that it is not idempotent! the same long-url doesn't map to the same short-url
-	s.db.Write(id, originalURL) // error ignored for now
+	// generate a short ID (simple counter for Phase1)
+	id := fmt.Sprintf("%d", 1)      // later we can use a better ID generation method (and safer!)
+	_ = s.db.Write(id, originalURL) // error ignored for now
 	return id
 }
 
@@ -94,20 +86,18 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	originalURL := newReqBody.Url
-	if originalURL == "" {
+	if newReqBody.Url == "" {
 		http.Error(w, "Missing URL", http.StatusBadRequest)
 		return
 	}
 
-	id := s.Shorten(originalURL)
+	id := s.Shorten(newReqBody.Url)
 	shortURL := fmt.Sprintf("http://%s/%s?id=%s", r.Host, REDIRECT_PATH, id)
-	fmt.Println("set original url:", originalURL, "to", shortURL)
-	newRspBody := &ShortenRspBody{Code: id, Short_url: shortURL}
+	fmt.Println("set original url:", newReqBody.Url, "to short-form of:", shortURL)
+	newRspBody := &ShortenRspBody{Code: id, ShortUrl: shortURL}
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(newRspBody)
-	// w.Write([]byte(shortURL))
 }
 
 func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +112,6 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ID not found", http.StatusNotFound)
 		return
 	}
-	fmt.Println("original found as", originalURL)
 	http.Redirect(w, r, originalURL, http.StatusMovedPermanently)
 }
 
@@ -138,9 +127,7 @@ func main() {
 	server := &http.Server{Addr: ":" + *port, Handler: mux}
 
 	log.Printf("[Server] Listening on :%s\n", *port)
-	err := server.ListenAndServe()
-	if err != nil && err != http.ErrServerClosed {
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal("Server error: %w", err)
 	}
-	fmt.Println("Server Shutted Down Successfully :)")
 }
