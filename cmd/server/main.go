@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -22,7 +23,7 @@ type Store interface {
 type RamDatabase struct {
 	mu      sync.RWMutex
 	storage map[string]string // in-memory storage for now
-	Store
+	Store                     // should I remove it or not?! as it is set to nil by default
 }
 
 func (db *RamDatabase) Read(id string) (origin string, exists bool) {
@@ -32,7 +33,7 @@ func (db *RamDatabase) Read(id string) (origin string, exists bool) {
 	return originalURL, exists
 }
 
-func (db *RamDatabase) Save(id, origin string) error {
+func (db *RamDatabase) Write(id, origin string) error {
 	db.mu.Lock()
 	db.storage[id] = origin // later change
 	db.mu.Unlock()
@@ -41,6 +42,17 @@ func (db *RamDatabase) Save(id, origin string) error {
 
 type MapAlgorithm interface {
 	Shorten(origin string) (id string)
+}
+
+// request & response body structs
+
+type ShortenReqBody struct {
+	Url string `json:"url"`
+}
+
+type ShortenRspBody struct {
+	Code      string `json:"code"`
+	Short_url string `json:"short_url"`
 }
 
 // for now, includes URL generator
@@ -68,21 +80,34 @@ func (s *Server) Redirect(id string) (string, bool) {
 }
 
 func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	originalURL := r.FormValue("url")
+	var newReqBody ShortenReqBody
+	err := json.NewDecoder(r.Body).Decode(&newReqBody)
+	if err != nil {
+		http.Error(w, `{"error": "Invalid JSON format"}`, http.StatusBadRequest)
+		return
+	}
+
+	originalURL := newReqBody.Url
 	if originalURL == "" {
 		http.Error(w, "Missing URL", http.StatusBadRequest)
 		return
 	}
 
 	id := s.Shorten(originalURL)
-	shortURL := fmt.Sprintf("http://%s/%s/id=%s", r.Host, id)
+	shortURL := fmt.Sprintf("http://%s/%s?id=%s", r.Host, REDIRECT_PATH, id)
+	fmt.Println("set original url:", originalURL, "to", shortURL)
+	newRspBody := &ShortenRspBody{Code: id, Short_url: shortURL}
+
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte(shortURL))
+	json.NewEncoder(w).Encode(newRspBody)
+	// w.Write([]byte(shortURL))
 }
 
 func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
@@ -97,6 +122,7 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ID not found", http.StatusNotFound)
 		return
 	}
+	fmt.Println("original found as", originalURL)
 	http.Redirect(w, r, originalURL, http.StatusMovedPermanently)
 }
 
@@ -116,4 +142,5 @@ func main() {
 	if err != nil && err != http.ErrServerClosed {
 		log.Fatal("Server error: %w", err)
 	}
+	fmt.Println("Server Shutted Down Successfully :)")
 }
