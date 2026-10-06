@@ -17,9 +17,14 @@ package shortener
 // sorry for my bad english but I added these self-written comments to prove it is not AI generated comment or code ^_^
 
 import (
-	"fmt"
+	"errors"
+	"hash/fnv"
+	"math/big"
+	"strings"
 	"url-shortener/internal/store"
 )
+
+const key string = "hi hello how are you!"
 
 type Shortener struct {
 	db store.Store
@@ -32,13 +37,51 @@ func New() *Shortener {
 	return &Shortener{db: store.NewRam()}
 }
 
-func (s *Shortener) Shorten(originalURL string) string {
-	// generate a short ID (simple counter for Phase1)
-	id := fmt.Sprintf("%d", 1)      // later we can use a better ID generation method (and safer!)
-	_ = s.db.Write(id, originalURL) // error ignored for now
-	return id
+// the most complicated function of the project till now!
+func (s *Shortener) Shorten(originalURL string) (string, error) {
+	// generate a short ID
+	length := 6
+	found := true          // just for making sure the loops ran at least once
+	var id, urlInDB string // it is a bit complicated and became a dirty code function :/
+	for ; found && length <= 8; length++ {
+		id = hashToN(originalURL, key, length)
+		urlInDB, found = s.db.Read(id)
+		if found && urlInDB == originalURL {
+			return id, nil // idempotant
+		}
+		// if not found the loops break, if found and collision happened, length++
+	}
+
+	if found && length == 8 {
+		// collision happend even on hashTo8 (and 6 and 7 before!, extremly rare corner case)
+		return "", errors.New("Collision on all three 6, 7, and 8 digit codes! use another url!")
+		// or add ? or / to the end of it in code!
+	}
+
+	err := s.db.Write(id, originalURL) // error ignored for now
+	return id, err
 }
 
 func (s *Shortener) Redirect(id string) (string, bool) {
 	return s.db.Read(id) // originalURL, found/exists
+}
+
+// hashes an input to the N-digit code in base62 (fixed size hash using fnv 64 bit & bitmasking)
+func hashToN(input string, key string, length int) string {
+	hasher := fnv.New64()
+	hasher.Write([]byte(key))
+	hasher.Write([]byte(input))
+	hashUint64 := hasher.Sum64()
+
+	maxBace62Value := new(big.Int).Exp(big.NewInt(62), big.NewInt(int64(length)), nil)
+
+	biHash := new(big.Int).SetUint64(hashUint64)
+	finalNumber := new(big.Int).Mod(biHash, maxBace62Value)
+
+	base62str := finalNumber.Text(62)
+
+	if len(base62str) < length {
+		base62str = strings.Repeat("0", length-len(base62str)) + base62str
+	}
+	return base62str
 }

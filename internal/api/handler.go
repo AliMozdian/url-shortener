@@ -73,7 +73,12 @@ func (s *Server) HandleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := s.shortener.Shorten(newReqBody.Url)
+	id, err := s.shortener.Shorten(newReqBody.Url)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	shortURL := fmt.Sprintf("http://%s/%s?id=%s", r.Host, REDIRECT_PATH, id)
 	fmt.Println("set original url:", newReqBody.Url, "to short-form of:", shortURL)
 	newRspBody := &ShortenRspBody{Code: id, ShortUrl: shortURL}
