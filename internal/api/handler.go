@@ -12,17 +12,14 @@ import (
 )
 
 // POST /api/shorten - create a new short URL
-// GET /l?id={id} - get the original URL by short ID
-
-const REDIRECT_PATH = "l" // link/	--> needs to be removed and use GET/{code} instead
+// GET /{id} - get the original URL by short ID
 
 // request & response body structs
-
-type ShortenReqBody struct {
+type shortenReqBody struct {
 	Url string `json:"url"`
 }
 
-type ShortenRspBody struct {
+type shortenRspBody struct {
 	Code     string `json:"code"`
 	ShortUrl string `json:"short_url"`
 }
@@ -46,14 +43,14 @@ func NewServer(port string) (*Server, error) {
 	s.shortener = shortener.New()
 
 	s.mux = http.NewServeMux()
-	s.mux.HandleFunc("/api/shorten", s.HandleShorten)
-	s.mux.HandleFunc("/l", s.HandleRedirect)
+	s.mux.HandleFunc("/api/shorten", s.handleShorten)
+	s.mux.HandleFunc("GET /{id}", s.handleRedirect)
 
 	s.httpServer = &http.Server{Addr: ":" + port, Handler: s.mux}
 	return s, nil
 }
 
-func (s *Server) HandleShorten(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	if r.Method != http.MethodPost {
@@ -61,7 +58,7 @@ func (s *Server) HandleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var newReqBody ShortenReqBody
+	var newReqBody shortenReqBody
 	err := json.NewDecoder(r.Body).Decode(&newReqBody)
 	if err != nil {
 		http.Error(w, `{"error": "Invalid JSON format"}`, http.StatusBadRequest)
@@ -79,21 +76,21 @@ func (s *Server) HandleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL := fmt.Sprintf("http://%s/%s?id=%s", r.Host, REDIRECT_PATH, id)
+	shortURL := fmt.Sprintf("http://%s/%s", r.Host, id)
 	fmt.Println("set original url:", newReqBody.Url, "to short-form of:", shortURL)
-	newRspBody := &ShortenRspBody{Code: id, ShortUrl: shortURL}
+	newRspBody := &shortenRspBody{Code: id, ShortUrl: shortURL}
 
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(newRspBody)
 }
 
-func (s *Server) HandleRedirect(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	id := r.URL.Query().Get("id")
+	id := r.PathValue("id")
 	originalURL, found := s.shortener.Redirect(id)
 	if !found {
 		http.Error(w, "ID not found", http.StatusNotFound)
