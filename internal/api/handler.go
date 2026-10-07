@@ -16,6 +16,32 @@ import (
 // POST /api/shorten - create a new short URL
 // GET /{id} - get the original URL by short ID
 
+// Validate: http or https only, no empty host
+// Normalize: lower-case scheme and host; strip trailing slash if path != "/"
+func ValidateAndNormalizeURL(rawURL string) (string, error) {
+	u, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", errors.New("scheme must be http or https")
+	}
+	if u.Host == "" {
+		return "", errors.New("host cannot be empty")
+	}
+
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+
+	if u.Path == "" || u.Path == "/" {
+		u.Path = "/"
+	} else {
+		u.Path = strings.TrimSuffix(u.Path, "/")
+	}
+
+	return u.String(), nil
+}
+
 // request & response body structs
 type shortenReqBody struct {
 	Url string `json:"url"`
@@ -73,19 +99,12 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := url.ParseRequestURI(newReqBody.Url)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		http.Error(w, "Invalid Scheme or Host", http.StatusBadRequest)
+	normalizedURL, err := ValidateAndNormalizeURL(newReqBody.Url)
+	if err != nil {
+		errMsg := fmt.Sprintf("Error in URL Validation: %w", err)
+		http.Error(w, errMsg, http.StatusBadRequest)
 		return
 	}
-
-	// Normalize: lower-case scheme and host; strip trailing slash if path != "/"
-	u.Scheme = strings.ToLower(u.Scheme)
-	u.Host = strings.ToLower(u.Host)
-	if len(u.Path) > 1 && strings.HasSuffix(u.Path, "/") {
-		u.Path = strings.TrimSuffix(u.Path, "/")
-	}
-	normalizedURL := u.String()
 
 	id, err := s.shortener.Shorten(normalizedURL)
 	if err != nil {
@@ -93,8 +112,8 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL := fmt.Sprintf("http://%s/%s", s.base, id)
-	fmt.Println("set original url:", newReqBody.Url, "to short-form of:", shortURL)
+	shortURL := fmt.Sprintf("%s/%s", s.base, id)
+	fmt.Println("original url:", normalizedURL, "short-form of:", shortURL)
 	newRspBody := &shortenRspBody{Code: id, ShortUrl: shortURL}
 
 	w.WriteHeader(http.StatusCreated)
