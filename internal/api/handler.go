@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 
 	"url-shortener/internal/shortener"
 )
@@ -71,7 +73,21 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := s.shortener.Shorten(newReqBody.Url)
+	u, err := url.ParseRequestURI(newReqBody.Url)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		http.Error(w, "Invalid Scheme or Host", http.StatusBadRequest)
+		return
+	}
+
+	// Normalize: lower-case scheme and host; strip trailing slash if path != "/"
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	if len(u.Path) > 1 && strings.HasSuffix(u.Path, "/") {
+		u.Path = strings.TrimSuffix(u.Path, "/")
+	}
+	normalizedURL := u.String()
+
+	id, err := s.shortener.Shorten(normalizedURL)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

@@ -37,29 +37,22 @@ func New() *Shortener {
 	return &Shortener{db: store.NewRam()}
 }
 
-// the most complicated function of the project till now!
+// cleaner implementation of the shortening algorithm (code only)
 func (s *Shortener) Shorten(originalURL string) (string, error) {
-	// generate a short ID
-	length := 6
-	found := true          // just for making sure the loops ran at least once
-	var id, urlInDB string // it is a bit complicated and became a dirty code function :/
-	for ; found && length <= 8; length++ {
-		id = hashToN(originalURL, key, length)
-		urlInDB, found = s.db.Read(id)
-		if found && urlInDB == originalURL {
-			return id, nil // idempotant
+	// generate a short ID, explained in DESCISIONS.md
+	for length := 6; length <= 8; length++ {
+		id := hashToN(originalURL, key, length)
+		urlInDB, found := s.db.Read(id)
+		if !found {
+			err := s.db.Write(id, originalURL)
+			return id, err
 		}
-		// if not found the loops break, if found and collision happened, length++
+		if urlInDB == originalURL {
+			return id, nil // Idempotent match
+		}
+		// Collision: continue to next length
 	}
-
-	if found && length >= 9 {
-		// collision happend even on hashTo8 (and 6 and 7 before!, extremly rare corner case)
-		return "", errors.New("Collision on all three 6, 7, and 8 digit codes! use another url!")
-		// or add ? or / to the end of it in code!
-	}
-
-	err := s.db.Write(id, originalURL) // error ignored for now
-	return id, err
+	return "", errors.New("collision detected across all code lengths (6-8)")
 }
 
 func (s *Shortener) Redirect(id string) (string, bool) {
