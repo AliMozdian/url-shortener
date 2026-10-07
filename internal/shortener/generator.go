@@ -52,7 +52,7 @@ func (s *Shortener) Shorten(originalURL string) (string, error) {
 		// if not found the loops break, if found and collision happened, length++
 	}
 
-	if found && length == 8 {
+	if found && length >= 9 {
 		// collision happend even on hashTo8 (and 6 and 7 before!, extremly rare corner case)
 		return "", errors.New("Collision on all three 6, 7, and 8 digit codes! use another url!")
 		// or add ? or / to the end of it in code!

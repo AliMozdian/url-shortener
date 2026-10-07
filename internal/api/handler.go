@@ -25,6 +25,7 @@ type shortenRspBody struct {
 }
 
 type Server struct {
+	base       string
 	port       string
 	mux        *http.ServeMux
 	httpServer *http.Server
@@ -32,14 +33,14 @@ type Server struct {
 }
 
 // creates a new Server (my struct for handling APIs)
-func NewServer(port string) (*Server, error) {
+func NewServer(base, port string) (*Server, error) {
 	// error handling for port (checkInt, check not empty)
 	portAsInt, err := strconv.Atoi(port)
 	if err != nil || portAsInt < 0 || portAsInt > 65535 {
 		return nil, errors.New("port must be an int, and between 0 and 65535!")
 	}
 
-	s := &Server{port: port}
+	s := &Server{base: base, port: port}
 	s.shortener = shortener.New()
 
 	s.mux = http.NewServeMux()
@@ -76,7 +77,7 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	shortURL := fmt.Sprintf("http://%s/%s", r.Host, id)
+	shortURL := fmt.Sprintf("http://%s/%s", s.base, id)
 	fmt.Println("set original url:", newReqBody.Url, "to short-form of:", shortURL)
 	newRspBody := &shortenRspBody{Code: id, ShortUrl: shortURL}
 
@@ -96,7 +97,7 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "ID not found", http.StatusNotFound)
 		return
 	}
-	http.Redirect(w, r, originalURL, http.StatusMovedPermanently)
+	http.Redirect(w, r, originalURL, http.StatusFound)
 }
 
 // Runes the server and loops on listenning until something kills it
