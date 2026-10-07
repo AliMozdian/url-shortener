@@ -101,7 +101,7 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 
 	normalizedURL, err := ValidateAndNormalizeURL(newReqBody.Url)
 	if err != nil {
-		errMsg := fmt.Sprintf("Error in URL Validation: %w", err)
+		errMsg := fmt.Sprintf("Error in URL Validation: %v", err)
 		http.Error(w, errMsg, http.StatusBadRequest)
 		return
 	}
