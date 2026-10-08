@@ -1,31 +1,48 @@
 package store
 
-import "sync"
+import (
+	"errors"
+	"sync"
+	"time"
+)
+
+var (
+	ErrNotFound = errors.New("record not found")
+)
+
+type LinkRecord struct {
+	Code      string    `json:"code"`
+	Url       string    `json:"url"`
+	CreatedAt time.Time `json:"created_at"`
+}
 
 type Store interface {
-	Read(short string) (long string, exists bool)
-	Write(short, long string) error
+	Read(short string) (LinkRecord, error)
+	Write(record LinkRecord) error
 }
 
 type RamDatabase struct {
 	mu      sync.RWMutex
-	storage map[string]string
+	storage map[string]LinkRecord
 }
 
 func NewRam() *RamDatabase {
-	return &RamDatabase{mu: sync.RWMutex{}, storage: make(map[string]string)}
+	return &RamDatabase{mu: sync.RWMutex{}, storage: make(map[string]LinkRecord)}
 }
 
-func (db *RamDatabase) Read(id string) (origin string, exists bool) {
+func (db *RamDatabase) Read(code string) (LinkRecord, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
-	originalURL, exists := db.storage[id]
-	return originalURL, exists
+	rec, exists := db.storage[code]
+	if !exists {
+		return LinkRecord{}, ErrNotFound
+	}
+	return rec, nil
 }
 
-func (db *RamDatabase) Write(id, origin string) error {
+func (db *RamDatabase) Write(record LinkRecord) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
-	db.storage[id] = origin // later change
-	return nil              // nothing for now!
+	db.storage[record.Code] = record // later change
+	return nil                       // nothing for now!
 }

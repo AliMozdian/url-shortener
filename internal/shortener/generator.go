@@ -18,14 +18,22 @@ package shortener
 
 import (
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"math/big"
 	"strings"
+	"time"
 
 	"github.com/AliMozdian/url-shortener/internal/store"
 )
 
-const key string = "hi hello how are you!"
+var (
+	ErrInvalidURL = errors.New("invalid URL")
+	ERRCollision  = errors.New("collision detected across all code lengths (6-8)")
+)
+
+// later: must read from .env or something, temp for now
+const key string = "hi hello how are you!" // to have a unique key
 
 type Shortener struct {
 	db store.Store
@@ -33,9 +41,9 @@ type Shortener struct {
 
 // Returns an instance of shortener logic center
 // needs massive refactore
-func New() *Shortener {
+func New(db store.Store) *Shortener {
 	// db: RAM (in-memory), later gets it as a parameter
-	return &Shortener{db: store.NewRam()}
+	return &Shortener{db: db}
 }
 
 // cleaner implementation of the shortening algorithm (code only)
@@ -43,21 +51,32 @@ func (s *Shortener) Shorten(originalURL string) (string, error) {
 	// generate a short ID, explained in DESCISIONS.md
 	for length := 6; length <= 8; length++ {
 		id := hashToN(originalURL, key, length)
-		urlInDB, found := s.db.Read(id)
-		if !found {
-			err := s.db.Write(id, originalURL)
-			return id, err
+		dbRec, err := s.db.Read(id)
+		if errors.Is(err, store.ErrNotFound) {
+			newRec := store.LinkRecord{Code: id, Url: originalURL, CreatedAt: time.Now().UTC()}
+			if writeErr := s.db.Write(newRec); writeErr != nil {
+				return "", fmt.Errorf("failed to save link: %w", writeErr)
+			}
+			return id, nil
 		}
-		if urlInDB == originalURL {
+		if err != nil {
+			return "", fmt.Errorf("store read error: %w", err) // this must not happen!
+		}
+
+		if dbRec.Url == originalURL {
 			return id, nil // Idempotent match
 		}
 		// Collision: continue to next length
 	}
-	return "", errors.New("collision detected across all code lengths (6-8)")
+	return "", fmt.Errorf("failed to generate unique code: %w", ERRCollision)
 }
 
-func (s *Shortener) Redirect(id string) (string, bool) {
-	return s.db.Read(id) // originalURL, found/exists
+func (s *Shortener) Redirect(id string) (string, error) {
+	rec, err := s.db.Read(id)
+	if err != nil {
+		return "", fmt.Errorf("redirect lookup for %s: %w", id, err)
+	}
+	return rec.Url, nil
 }
 
 // hashes an input to the N-digit code in base62 (fixed size hash using fnv 64 bit & bitmasking)
@@ -78,4 +97,12 @@ func hashToN(input string, key string, length int) string {
 		base62str = strings.Repeat("0", length-len(base62str)) + base62str
 	}
 	return base62str
+}
+
+func (s *Shortener) GetMetadata(id string) (store.LinkRecord, error) {
+	record, err := s.db.Read(id)
+	if err != nil {
+		return store.LinkRecord{}, fmt.Errorf("metadata lookup for %s: %w", id, err)
+	}
+	return record, nil
 }

@@ -9,8 +9,10 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/AliMozdian/url-shortener/internal/shortener"
+	"github.com/AliMozdian/url-shortener/internal/store"
 )
 
 // POST /api/shorten - create a new short URL
@@ -53,6 +55,11 @@ type shortenRspBody struct {
 	ShortUrl string `json:"short_url"`
 }
 
+type metadataRspBody struct {
+	Url       string `json:"url"`
+	CreatedAt string `json:"created_at"` // RFC3339 format is implied
+}
+
 type Server struct {
 	base       string
 	port       string
@@ -62,7 +69,7 @@ type Server struct {
 }
 
 // creates a new Server (my struct for handling APIs)
-func NewServer(base, port string) (*Server, error) {
+func NewServer(base, port, dbMode string) (*Server, error) {
 	// error handling for port (checkInt, check not empty)
 	port = strings.TrimPrefix(port, ":")
 	portAsInt, err := strconv.Atoi(port)
@@ -71,14 +78,46 @@ func NewServer(base, port string) (*Server, error) {
 	}
 
 	s := &Server{base: base, port: port}
-	s.shortener = shortener.New()
+	var db store.Store
+	switch strings.ToLower(dbMode) {
+	case "in-memory", "ram":
+		db = store.NewRam()
+	case "fake", "test":
+		db = store.NewFakeStore()
+	}
+	s.shortener = shortener.New(db)
 
 	s.mux = http.NewServeMux()
 	s.mux.HandleFunc("/api/shorten", s.handleShorten)
 	s.mux.HandleFunc("GET /{id}", s.handleRedirect)
+	s.mux.HandleFunc("GET /api/v1/links/{id}", s.handleMetadata)
 
 	s.httpServer = &http.Server{Addr: ":" + port, Handler: s.mux}
 	return s, nil
+}
+
+// just like NewServer but instead of dbMode it receives a shortner
+// useful for tests having access to the shortner and its db
+func NewServerWithShortner(base, port string, sh *shortener.Shortener) (*Server, error) {
+	port = strings.TrimPrefix(port, ":")
+	portAsInt, err := strconv.Atoi(port)
+	if err != nil || portAsInt < 0 || portAsInt > 65535 {
+		return nil, fmt.Errorf("port must be an int, and between 0 and 65535!, not %q", port)
+	}
+	if sh == nil {
+		return nil, fmt.Errorf("shortner of a server cannot be nil!")
+	}
+	s := &Server{base: base, port: port}
+	s.shortener = sh
+
+	s.mux = http.NewServeMux()
+	s.mux.HandleFunc("/api/shorten", s.handleShorten)
+	s.mux.HandleFunc("GET /{id}", s.handleRedirect)
+	s.mux.HandleFunc("GET /api/v1/links/{id}", s.handleMetadata)
+
+	s.httpServer = &http.Server{Addr: ":" + port, Handler: s.mux}
+	return s, nil
+
 }
 
 func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
@@ -129,12 +168,37 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := r.PathValue("id")
-	originalURL, found := s.shortener.Redirect(id)
-	if !found {
+	originalURL, err := s.shortener.Redirect(id)
+	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "ID not found", http.StatusNotFound)
 		return
 	}
+	if err != nil {
+		http.Error(w, "Unexpected Server Error!", http.StatusInternalServerError)
+	}
 	http.Redirect(w, r, originalURL, http.StatusFound)
+}
+
+func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := r.PathValue("id")
+
+	record, err := s.shortener.GetMetadata(id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, `{"error": "link not found"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	rsp := metadataRspBody{
+		Url:       record.Url,
+		CreatedAt: record.CreatedAt.Format(time.RFC3339),
+	}
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(rsp) // we're sure there is no error for this :0
 }
 
 // Runes the server and loops on listenning until something kills it

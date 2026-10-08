@@ -17,12 +17,13 @@ func run(args []string, stdout io.Writer, actuallyRun bool) error {
 
 	addr := flags.String("addr", "8080", "HTTP listen address")
 	base := flags.String("base", "http://localhost:8080", "Base URL for short links")
+	db := flags.String("db", "ram", "Database mode for link storage")
 
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
-	srv, err := api.NewServer(*base, *addr)
+	srv, err := api.NewServer(*base, *addr, *db)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}

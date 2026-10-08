@@ -9,35 +9,35 @@ func TestRamDatabase_ReadWrite(t *testing.T) {
 	db := NewRam()
 
 	// 1. Read non-existing key
-	val, exists := db.Read("non-existent")
-	if exists || val != "" {
-		t.Fatalf("expected exists=false and empty string, got exists=%v, val=%q", exists, val)
+	record, err := db.Read("non-existent")
+	if err == nil {
+		t.Fatalf("expected err=nil and empty record, got exists=%v, val=%q", err, record.Url)
 	}
 
 	// 2. Write key
-	err := db.Write("abc123", "https://go.dev")
+	err = db.Write(LinkRecord{Code: "abc123", Url: "https://go.dev"})
 	if err != nil {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
 	// 3. Read back existing key
-	val, exists = db.Read("abc123")
-	if !exists {
+	record, err = db.Read("abc123")
+	if err != nil {
 		t.Fatalf("expected key to exist")
 	}
-	if val != "https://go.dev" {
-		t.Fatalf("expected %q, got %q", "https://go.dev", val)
+	if record.Url != "https://go.dev" {
+		t.Fatalf("expected %q, got %q", "https://go.dev", record.Url)
 	}
 
 	// 4. Overwrite existing key
-	err = db.Write("abc123", "https://go.dev/doc")
+	err = db.Write(LinkRecord{Code: "abc123", Url: "https://go.dev/doc"})
 	if err != nil {
 		t.Fatalf("unexpected write error: %v", err)
 	}
 
-	val, exists = db.Read("abc123")
-	if !exists || val != "https://go.dev/doc" {
-		t.Fatalf("expected overwritten value %q, got %q", "https://go.dev/doc", val)
+	record, err = db.Read("abc123")
+	if err != nil || record.Url != "https://go.dev/doc" {
+		t.Fatalf("expected overwritten value %q, got %q", "https://go.dev/doc", record.Url)
 	}
 }
 
@@ -50,7 +50,7 @@ func TestRamDatabase_ConcurrentReadWrite(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			_ = db.Write("key", "https://go.dev")
+			_ = db.Write(LinkRecord{Code: "key", Url: "https://go.dev"})
 		}(i)
 	}
 
