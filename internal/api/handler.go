@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/AliMozdian/url-shortener/internal/shortener"
 	"github.com/AliMozdian/url-shortener/internal/store"
@@ -54,6 +55,11 @@ type shortenRspBody struct {
 	ShortUrl string `json:"short_url"`
 }
 
+type metadataRspBody struct {
+	Url       string `json:"url"`
+	CreatedAt string `json:"created_at"` // RFC3339 format is implied
+}
+
 type Server struct {
 	base       string
 	port       string
@@ -77,6 +83,7 @@ func NewServer(base, port string) (*Server, error) {
 	s.mux = http.NewServeMux()
 	s.mux.HandleFunc("/api/shorten", s.handleShorten)
 	s.mux.HandleFunc("GET /{id}", s.handleRedirect)
+	s.mux.HandleFunc("GET /api/v1/links/{id}", s.handleMetadata)
 
 	s.httpServer = &http.Server{Addr: ":" + port, Handler: s.mux}
 	return s, nil
@@ -139,6 +146,28 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unexpected Server Error!", http.StatusInternalServerError)
 	}
 	http.Redirect(w, r, originalURL, http.StatusFound)
+}
+
+func (s *Server) handleMetadata(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := r.PathValue("id")
+
+	record, err := s.shortener.GetMetadata(id)
+	if errors.Is(err, store.ErrNotFound) {
+		http.Error(w, `{"error": "link not found"}`, http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		http.Error(w, `{"error": "internal server error"}`, http.StatusInternalServerError)
+		return
+	}
+
+	rsp := metadataRspBody{
+		Url:       record.Url,
+		CreatedAt: record.CreatedAt.Format(time.RFC3339),
+	}
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(rsp) // we're sure there is no error for this :0
 }
 
 // Runes the server and loops on listenning until something kills it
