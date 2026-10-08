@@ -64,6 +64,7 @@ type Server struct {
 // creates a new Server (my struct for handling APIs)
 func NewServer(base, port string) (*Server, error) {
 	// error handling for port (checkInt, check not empty)
+	port = strings.TrimPrefix(port, ":")
 	portAsInt, err := strconv.Atoi(port)
 	if err != nil || portAsInt < 0 || portAsInt > 65535 {
 		return nil, fmt.Errorf("port must be an int, and between 0 and 65535!, not %q", port)

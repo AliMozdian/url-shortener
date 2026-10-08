@@ -15,7 +15,7 @@ func run(args []string, stdout io.Writer, actuallyRun bool) error {
 	flags := flag.NewFlagSet("server", flag.ContinueOnError)
 	flags.SetOutput(stdout)
 
-	addr := flags.String("addr", ":8080", "HTTP listen address")
+	addr := flags.String("addr", "8080", "HTTP listen address")
 	base := flags.String("base", "http://localhost:8080", "Base URL for short links")
 
 	if err := flags.Parse(args); err != nil {
