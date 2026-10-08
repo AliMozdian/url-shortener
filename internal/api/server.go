@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/AliMozdian/url-shortener/internal/shortener"
 	"github.com/AliMozdian/url-shortener/internal/store"
@@ -43,7 +44,13 @@ func NewServer(base, port, dbMode string) (*Server, error) {
 	s.mux.HandleFunc("GET /{id}", s.handleRedirect)
 	s.mux.HandleFunc("GET /api/v1/links/{id}", s.handleMetadata)
 
-	s.httpServer = &http.Server{Addr: ":" + port, Handler: s.mux}
+	s.httpServer = &http.Server{
+		Addr:         ":" + port,
+		Handler:      s.mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
 	return s, nil
 }
 
