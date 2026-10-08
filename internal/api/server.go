@@ -21,22 +21,30 @@ type Server struct {
 }
 
 // creates a new Server (my struct for handling APIs)
-func NewServer(base, port, dbMode string) (*Server, error) {
-	// error handling for port (checkInt, check not empty)
+func NewServer(base, port, dbMode, dsn string) (*Server, error) {
 	port = strings.TrimPrefix(port, ":")
 	portAsInt, err := strconv.Atoi(port)
 	if err != nil || portAsInt < 0 || portAsInt > 65535 {
 		return nil, fmt.Errorf("port must be an int, and between 0 and 65535!, not %q", port)
 	}
 
-	s := &Server{base: base, port: port}
 	var db store.Store
 	switch strings.ToLower(dbMode) {
+	case "sqlite", "gorm", "persistent":
+		gormStore, err := store.NewGormStore(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize sqlite store: %w", err)
+		}
+		db = gormStore
 	case "in-memory", "ram":
 		db = store.NewRam()
 	case "fake", "test":
 		db = store.NewFakeStore()
+	default:
+		return nil, fmt.Errorf("unkown value for db flag (arg)! expected gorm/sqlite, ram or fake, but got %q", dbMode)
 	}
+
+	s := &Server{base: base, port: port}
 	s.shortener = shortener.New(db)
 
 	s.mux = http.NewServeMux()
