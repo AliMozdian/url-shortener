@@ -57,7 +57,6 @@ func NewGormStore(dsn string) (*GormDatabase, error) {
 // Read queries a link by its short code.
 func (g *GormDatabase) Read(code string) (LinkRecord, error) {
 	var row GormLink
-	// Equivalent to: SELECT * FROM gorm_links WHERE code = ? LIMIT 1
 	result := g.db.First(&row, "code = ?", code)
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
@@ -81,7 +80,6 @@ func (g *GormDatabase) Write(record LinkRecord) error {
 		CreatedAt: record.CreatedAt,
 	}
 
-	// Equivalent to: INSERT INTO gorm_links (code, url, created_at) VALUES (...)
 	result := g.db.Create(&row)
 	if result.Error != nil {
 		return fmt.Errorf("gorm write error: %w", result.Error)
