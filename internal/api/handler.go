@@ -66,7 +66,7 @@ func NewServer(base, port string) (*Server, error) {
 	// error handling for port (checkInt, check not empty)
 	portAsInt, err := strconv.Atoi(port)
 	if err != nil || portAsInt < 0 || portAsInt > 65535 {
-		return nil, errors.New("port must be an int, and between 0 and 65535!")
+		return nil, fmt.Errorf("port must be an int, and between 0 and 65535!, not %q", port)
 	}
 
 	s := &Server{base: base, port: port}
