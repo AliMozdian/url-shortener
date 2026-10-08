@@ -10,7 +10,7 @@ func TestRamDatabase_ReadWrite(t *testing.T) {
 
 	// 1. Read non-existing key
 	record, err := db.Read("non-existent")
-	if err != nil {
+	if err == nil {
 		t.Fatalf("expected err=nil and empty record, got exists=%v, val=%q", err, record.Url)
 	}
 

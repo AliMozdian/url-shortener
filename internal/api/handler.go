@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/AliMozdian/url-shortener/internal/shortener"
+	"github.com/AliMozdian/url-shortener/internal/store"
 )
 
 // POST /api/shorten - create a new short URL
@@ -71,7 +72,7 @@ func NewServer(base, port string) (*Server, error) {
 	}
 
 	s := &Server{base: base, port: port}
-	s.shortener = shortener.New()
+	s.shortener = shortener.New(store.NewRam()) // for now we have only in-memory store (db)
 
 	s.mux = http.NewServeMux()
 	s.mux.HandleFunc("/api/shorten", s.handleShorten)
@@ -129,10 +130,13 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := r.PathValue("id")
-	originalURL, found := s.shortener.Redirect(id)
-	if !found {
+	originalURL, err := s.shortener.Redirect(id)
+	if errors.Is(err, store.ErrNotFound) {
 		http.Error(w, "ID not found", http.StatusNotFound)
 		return
+	}
+	if err != nil {
+		http.Error(w, "Unexpected Server Error!", http.StatusInternalServerError)
 	}
 	http.Redirect(w, r, originalURL, http.StatusFound)
 }

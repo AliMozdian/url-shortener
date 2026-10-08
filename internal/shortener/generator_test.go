@@ -1,12 +1,15 @@
 package shortener
 
 import (
+	"errors"
 	"sync"
 	"testing"
+
+	"github.com/AliMozdian/url-shortener/internal/store"
 )
 
 func TestShortener_Idempotency(t *testing.T) {
-	s := New()
+	s := New(store.NewRam())
 	targetURL := "https://go.dev/doc"
 
 	id1, err := s.Shorten(targetURL)
@@ -29,7 +32,7 @@ func TestShortener_Idempotency(t *testing.T) {
 }
 
 func TestShortener_Redirect(t *testing.T) {
-	s := New()
+	s := New(store.NewRam())
 	targetURL := "https://example.com"
 
 	id, err := s.Shorten(targetURL)
@@ -37,22 +40,25 @@ func TestShortener_Redirect(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	gotURL, found := s.Redirect(id)
-	if !found {
+	gotURL, err := s.Redirect(id)
+	if errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("expected code %s to be found in store", id)
+	}
+	if err != nil {
+		t.Fatalf("unexpected error while redirection: %v", err)
 	}
 	if gotURL != targetURL {
 		t.Errorf("expected %s, got %s", targetURL, gotURL)
 	}
 
-	_, found = s.Redirect("nonexistent")
-	if found {
-		t.Errorf("expected nonexistent code to return found=false")
+	_, err = s.Redirect("nonexistent")
+	if err == nil {
+		t.Errorf("expected nonexistent code to return err!=nil")
 	}
 }
 
 func TestShortener_ConcurrentAccess(t *testing.T) {
-	s := New()
+	s := New(store.NewRam())
 	urls := []string{
 		"https://google.com",
 		"https://go.dev",
@@ -72,9 +78,11 @@ func TestShortener_ConcurrentAccess(t *testing.T) {
 				t.Errorf("concurrent shorten failed: %v", err)
 				return
 			}
-			_, found := s.Redirect(id)
-			if !found {
+			_, err = s.Redirect(id)
+			if errors.Is(err, store.ErrNotFound) {
 				t.Errorf("concurrent redirect lookup failed for id: %s", id)
+			} else if err != nil {
+				t.Errorf("unexpected error while redirection: %v", err)
 			}
 		}(i)
 	}
