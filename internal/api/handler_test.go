@@ -3,17 +3,21 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/AliMozdian/url-shortener/internal/shortener"
+	"github.com/AliMozdian/url-shortener/internal/store"
 )
 
 func setupTestServer(t *testing.T) *Server {
 	t.Helper()
 	// Using a dummy port and base URL for test setup
-	srv, err := NewServer("http://localhost:8080", "8080")
+	srv, err := NewServer("http://localhost:8080", "8080", "ram")
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
@@ -25,24 +29,44 @@ func TestNewServerValidation(t *testing.T) {
 
 	validPorts := []string{"123", "60222", "0000"}
 	for _, vp := range validPorts {
-		if _, err := NewServer(validBase, vp); err != nil {
+		if _, err := NewServer(validBase, vp, "ram"); err != nil {
 			t.Errorf("port %q must be accepted as it is an int, >=0 and <=65535", vp)
 		}
 	}
 
 	noIntPort := "8a8b"
-	if _, err := NewServer(validBase, noIntPort); err == nil {
+	if _, err := NewServer(validBase, noIntPort, "ram"); err == nil {
 		t.Errorf("port %q must not be accepted as it's not an int", noIntPort)
 	}
 
 	negativePort := "-123"
-	if _, err := NewServer(validBase, negativePort); err == nil {
+	if _, err := NewServer(validBase, negativePort, "ram"); err == nil {
 		t.Errorf("port %q must not be accepted as it's must be non-negative", negativePort)
 	}
 
 	moreThanMaxPort := "65536"
-	if _, err := NewServer(validBase, moreThanMaxPort); err == nil {
+	if _, err := NewServer(validBase, moreThanMaxPort, "ram"); err == nil {
 		t.Errorf("port %q must not be accepted as it's higher than max valid port 65535", moreThanMaxPort)
+	}
+}
+
+func TestNewServerWithShortener(t *testing.T) {
+	validBase := "http://localhost:8080" // later check and test invalid base
+
+	validPorts := []string{"123", "60222", "0000"}
+	shFakeDb := shortener.New(store.NewFakeStore())
+	for _, vp := range validPorts {
+		if _, err := NewServerWithShortner(validBase, vp, shFakeDb); err != nil {
+			t.Errorf("port %q must be accepted as it is an int, >=0 and <=65535", vp)
+		}
+	}
+
+	if _, err := NewServerWithShortner("http://localhost:8080", "8080", nil); err == nil {
+		t.Errorf("server with shortener=nil must return error not")
+	}
+
+	if _, err := NewServerWithShortner("http://localhost:8080", "abcd", nil); err == nil {
+		t.Errorf("port %q must not be accepted as it's not an int", "abcd")
 	}
 }
 
@@ -274,4 +298,64 @@ func TestHandleShorten_Concurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestHandleMetadata_WithFakeStore(t *testing.T) {
+	fake := store.NewFakeStore()
+
+	sh := shortener.New(fake)
+	srv, err := NewServerWithShortner("http://localhost:8080", "8080", sh)
+	if err != nil {
+		t.Fatalf("failed to create a server with assigned shortner holding FakeStore: %v", err)
+	}
+
+	// test 404 when key is missing (exercises errors.Is(err, store.ErrNotFound))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/links/nonexistent", nil)
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for missing code, got %d", w.Code)
+	}
+
+	// test 500 when store fails with an unexpected internal error
+	fake.ErrToReturn = errors.New("database connection lost")
+	reqErr := httptest.NewRequest(http.MethodGet, "/api/v1/links/anycode", nil)
+	wErr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(wErr, reqErr)
+
+	if wErr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 when store returns internal error, got %d", wErr.Code)
+	}
+}
+
+func TestHandleMetadat_Success(t *testing.T) {
+	srv := setupTestServer(t)
+
+	// Pre-populate via Shorten handler
+	body := `{"url": "https://go.dev/doc"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/shorten", strings.NewReader(body))
+	w := httptest.NewRecorder()
+	srv.mux.ServeHTTP(w, req)
+
+	var res shortenRspBody
+	_ = json.Unmarshal(w.Body.Bytes(), &res)
+
+	// Request redirect: GET /{code}
+	linkReq := httptest.NewRequest(http.MethodGet, "/api/v1/links/"+res.Code, nil)
+	linkW := httptest.NewRecorder()
+
+	srv.mux.ServeHTTP(linkW, linkReq)
+
+	if linkW.Code != http.StatusOK {
+		t.Errorf("expected 200 OK, got %d", linkW.Code)
+	}
+}
+
+func TestCreateFakeStoreServer(t *testing.T) {
+	_, err := NewServer("http://localhost:8080", "8080", "fake")
+	if err != nil {
+		t.Fatalf("failed to create new server with dbMode=fake: %v", err)
+	}
+	// nothing more for now :) I just wanted more coverage :)
 }
