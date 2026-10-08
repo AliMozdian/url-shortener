@@ -89,7 +89,7 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shortURL := fmt.Sprintf("%s/%s", s.base, id)
-	fmt.Println("original url:", normalizedURL, "short-form of:", shortURL)
+	// fmt.Println("original url:", normalizedURL, "short-form of:", shortURL)
 	newRspBody := &shortenRspBody{Code: id, ShortUrl: shortURL}
 
 	w.WriteHeader(http.StatusCreated)
