@@ -19,9 +19,10 @@ import (
 // Validate: http or https only, no empty host
 // Normalize: lower-case scheme and host; strip trailing slash if path != "/"
 func ValidateAndNormalizeURL(rawURL string) (string, error) {
+	// this function might be anti-pattern, but I'm not sure about it!
 	u, err := url.ParseRequestURI(rawURL)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("Error while Parsing URL: %w", err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return "", errors.New("scheme must be http or https")
