@@ -52,3 +52,18 @@
     - *First Global Collision*: Under the Birthday Paradox ($N_{50\%} \approx \sqrt{2 M_6 \ln(2)}$), the first length-6 collision is expected after approximately 280,600 unique URLs are inserted.
     - *Length 7 Migration*: When a collision occurs at length 6, the insertion probe moves to length 7. At a scale of $N = 10,000,000$ links, the probability of an individual insert colliding at length 6 is only $P_6 = \frac{10^7}{5.68 \times 10^{10}} \approx 0.0176\%$ (1 in 5,680).
     - *Length 8 Collision & Failure Ceiling*: Returning an error requires a URL to collide consecutively at length 6, length 7, and length 8. Since $M_7$ and $M_8$ expand exponentially, the compound probability of failure $P(\text{ERRCollision}) = P_6 \times P_7 \times P_8$ at 10 million links is less than $10^{-20}$, guaranteeing virtually unlimited collision resilience before persistent storage limits are reached in Part 4.
+
+
+## Part 4
+- **Storage Choice**:
+  - GORM with SQLite driver (`gorm.io/driver/sqlite`). SQLite provides zero-infrastructure, self-contained single-file durability that runs across environments without requiring external daemon setup.
+- **Schema, Models & Migrations**:
+  - Model `GormLink` maps to table `gorm_links` with columns `code` (string, primary key), `url` (string, indexed), and `created_at` (timestamp, not null).
+  - Schema migrations run automatically upon connection startup via `db.AutoMigrate(&GormLink{})`.
+- **Atomicity & Crash Safety (Persist Before 201)**:
+  - Database writes use `db.Create(&row)` which executes an immediate synchronous SQL INSERT within SQLite's ACID transaction boundaries. The handler returns HTTP 201 Created only after `Write` completes without error.
+  - SQLite connection pool is configured with `SetMaxOpenConns(1)` to serialize write operations at the connection level, preventing file-level write lock thrashing under concurrent access.
+- **Timestamp Storage**:
+  - `CreatedAt` is stored as UTC timestamp. In tests and migrations, comparisons use second-level truncation (`Truncate(time.Second)`) to maintain fidelity across SQLite DATETIME conversions.
+- **Persistence & Idempotency Across Restarts**:
+  - Because code generation is derived deterministically from the URL hash, submitting the same URL after a server restart generates the exact same candidate code. The query `Read(code)` locates the existing record in SQLite, returning the original code and preserving the initial `CreatedAt` timestamp.
