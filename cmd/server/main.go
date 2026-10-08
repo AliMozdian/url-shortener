@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 
-	"url-shortener/internal/api"
+	"github.com/AliMozdian/url-shortener/internal/api"
 )
 
 // url shortener service with http server and in-memory storage

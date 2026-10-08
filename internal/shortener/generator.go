@@ -21,7 +21,8 @@ import (
 	"hash/fnv"
 	"math/big"
 	"strings"
-	"url-shortener/internal/store"
+
+	"github.com/AliMozdian/url-shortener/internal/store"
 )
 
 const key string = "hi hello how are you!"

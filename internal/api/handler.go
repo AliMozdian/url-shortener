@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"url-shortener/internal/shortener"
+	"github.com/AliMozdian/url-shortener/internal/shortener"
 )
 
 // POST /api/shorten - create a new short URL
