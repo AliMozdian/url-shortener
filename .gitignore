@@ -4,3 +4,4 @@ cover.html
 
 *.prof
 *.test
+*.db
