@@ -305,3 +305,44 @@ func TestHandleMetadat_Success(t *testing.T) {
 		t.Errorf("expected 200 OK, got %d", linkW.Code)
 	}
 }
+
+// Benchmarks of part3 :_(
+// It's late and I'm tired, I hate benchmarks...
+
+func BenchmarkHandleShorten(b *testing.B) {
+	srv, err := NewServer("http://localhost:8080", "8080", "ram")
+	if err != nil {
+		b.Fatalf("failed to create server: %v", err)
+	}
+
+	payload := `{"url": "https://go.dev/doc"}`
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest(http.MethodPost, "/api/shorten", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+	}
+}
+
+func BenchmarkHandleRedirect(b *testing.B) {
+	srv, err := NewServer("http://localhost:8080", "8080", "ram")
+	if err != nil {
+		b.Fatalf("failed to create server: %v", err)
+	}
+
+	// Pre-create link
+	code, _ := srv.shortener.Shorten("https://go.dev/doc")
+	target := "/" + code
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		w := httptest.NewRecorder()
+		srv.mux.ServeHTTP(w, req)
+	}
+}

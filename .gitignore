@@ -1,2 +1,6 @@
 coverage.out
+cover.out
 cover.html
+
+*.prof
+*.test
