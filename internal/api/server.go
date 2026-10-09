@@ -21,7 +21,9 @@ type Server struct {
 }
 
 // creates a new Server (my struct for handling APIs)
-func NewServer(base, port, dbMode, dsn string) (*Server, error) {
+// dsn is used for dbMode="gorm" only, ignored in other cases
+// if cashCap>0 => act normal, cachCap=0 => DEFAULT_CACHE_CAP, cachCap<0 => no cache
+func NewServer(base, port, dbMode, dsn string, cacheCap int) (*Server, error) {
 	port = strings.TrimPrefix(port, ":")
 	portAsInt, err := strconv.Atoi(port)
 	if err != nil || portAsInt < 0 || portAsInt > 65535 {
@@ -35,7 +37,11 @@ func NewServer(base, port, dbMode, dsn string) (*Server, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to initialize sqlite store: %w", err)
 		}
-		db = gormStore
+		if cacheCap >= 0 {
+			db = store.NewCachedStore(gormStore, cacheCap)
+		} else {
+			db = gormStore // no cache
+		}
 	case "in-memory", "ram":
 		db = store.NewRam()
 	case "fake", "test":

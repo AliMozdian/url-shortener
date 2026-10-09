@@ -17,7 +17,7 @@ import (
 func setupTestServer(t *testing.T) *Server {
 	t.Helper()
 	// Using a dummy port and base URL for test setup
-	srv, err := NewServer("http://localhost:8080", "8080", "ram", "")
+	srv, err := NewServer("http://localhost:8080", "8080", "ram", "", -1)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
@@ -310,7 +310,7 @@ func TestHandleMetadat_Success(t *testing.T) {
 // It's late and I'm tired, I hate benchmarks...
 
 func BenchmarkHandleShorten(b *testing.B) {
-	srv, err := NewServer("http://localhost:8080", "8080", "ram", "")
+	srv, err := NewServer("http://localhost:8080", "8080", "ram", "", -1)
 	if err != nil {
 		b.Fatalf("failed to create server: %v", err)
 	}
@@ -328,7 +328,7 @@ func BenchmarkHandleShorten(b *testing.B) {
 }
 
 func BenchmarkHandleRedirect(b *testing.B) {
-	srv, err := NewServer("http://localhost:8080", "8080", "ram", "")
+	srv, err := NewServer("http://localhost:8080", "8080", "ram", "", -1)
 	if err != nil {
 		b.Fatalf("failed to create server: %v", err)
 	}
