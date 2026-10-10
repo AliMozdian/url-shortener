@@ -67,3 +67,60 @@
   - `CreatedAt` is stored as UTC timestamp. In tests and migrations, comparisons use second-level truncation (`Truncate(time.Second)`) to maintain fidelity across SQLite DATETIME conversions.
 - **Persistence & Idempotency Across Restarts**:
   - Because code generation is derived deterministically from the URL hash, submitting the same URL after a server restart generates the exact same candidate code. The query `Read(code)` locates the existing record in SQLite, returning the original code and preserving the initial `CreatedAt` timestamp.
+
+
+## Part 5 — Millions of Requests (Architecture & Scaling)
+
+### 1. Stateless App Replicas & Shared Persistence (LB → N Apps → Shared Store)
+- **Stateless Tier**:
+  - The Go web application instances retain zero local state. All configuration (listen address, external base URL, database connection string, secret hash key) is passed via CLI flags or environment variables.
+  - Instances run inside containers (e.g., Kubernetes Pods or Amazon ECS tasks) horizontally auto-scaled based on CPU utilization and request rate.
+- **Layer 7 Load Balancer**:
+  - Traffic enters through a reverse proxy / Layer 7 load balancer (e.g., AWS Application Load Balancer, Cloudflare, or NGINX).
+  - The load balancer performs TLS termination, connection reuse via HTTP keep-alives, and health checks (`GET /healthz`), distributing requests round-robin across active application replicas.
+- **Shared Persistence Tier**:
+  - The single-file SQLite database is replaced with a managed, distributed relational cluster (e.g., PostgreSQL / Amazon Aurora) or a distributed key-value store.
+  - Replicas connect to the shared database pool via pgBouncer or built-in Go `database/sql` connection pooling, avoiding connection exhaustion while scaling to tens of instances.
+
+### 2. Read Path & Edge/CDN Caching for HTTP 302s
+- **Edge Cache Strategy**:
+  - The redirect endpoint (`GET /{code}`) returns HTTP `302 Found` with an explicit cache directive:
+    ```http
+    HTTP/1.1 302 Found
+    Location: [https://example.com/target](https://example.com/target)
+    Cache-Control: public, max-age=86400, s-maxage=604800, stale-while-revalidate=3600
+    ```
+  - `s-maxage=604800` instructs CDN edge nodes (Cloudflare, Fastly, AWS CloudFront) to cache the redirect response for 7 days.
+  - When millions of users visit a viral short link, 99.9% of redirect requests are terminated at the CDN point of presence (PoP) nearest to the user, never reaching the Go application servers or database.
+- **Trade-offs & Stale Redirects**:
+  - *Trade-off (Immutability vs Invalidation)*: Short links are designed to be immutable once created. If a URL target is ever modified or deleted, CDN caches will serve the stale redirect until TTL expiration unless an explicit CDN cache purge API call (`POST /purge-cache`) is triggered.
+  - *Why not 301 Moved Permanently?*: HTTP 301 is aggressively and permanently cached by client browsers with no guaranteed mechanism for the server to invalidate it. HTTP 302 with CDN-targeted `s-maxage` keeps cache control in the hands of edge proxies rather than client browser caches.
+
+### 3. Write-Path Scaling
+To handle spikes in `POST /api/shorten` without overwhelming the database write throughput:
+- **Pre-Generated Short Code Pools (Token Vending Machine)**:
+  - Instead of dynamically hashing and performing multiple database collision checks under write bursts, a background worker pre-generates blocks of unique Base62 codes (e.g., chunks of 10,000 codes allocated to each application replica).
+  - Each app instance consumes from its assigned local memory buffer when creating links, turning code allocation into an in-memory operation ($O(1)$) with zero collision checks on insert.
+- **Asynchronous Ingestion via Message Queue**:
+  - For massive batch URL creation, the API endpoint publishes the creation payload to an event bus (e.g., Apache Kafka or RabbitMQ) and immediately returns an assigned code.
+  - A pool of asynchronous background consumers flushes records in batched SQL inserts (`INSERT INTO ... VALUES (...), (...)`) directly into storage, smoothing out traffic spikes and maximizing database IOPS efficiency.
+- **Token Bucket Rate Limiting**:
+  - Token-bucket rate limiting per IP address or API token prevents single clients from exhausting available link code spaces or flooding write queues.
+
+### 4. Database Sharding & Partitioning Strategy
+When dataset size or write throughput surpasses a single database instance's storage or IOPS limits:
+- **Consistent Hashing by Short Code**:
+  - Partition the data across $N$ database shards using consistent hashing on the short code (e.g., `MurmurHash3(code) % NumShards`).
+  - Read lookups (`GET /{code}`) route deterministically to the exact shard responsible for that code key in $O(1)$ time without scatter-gather queries.
+- **Base62 Range Partitioning**:
+  - Alternatively, partition by the leading character of the Base62 code (`[0-9a-zA-Z]`, 62 partitions).
+  - Each shard owns a specific character prefix bucket (e.g., Shard 1 handles codes starting with `0-9`, Shard 2 handles `a-z`, Shard 3 handles `A-Z`).
+- **Idempotency Across Shards**:
+  - Because URL normalization and hash computation are deterministic, generating the short code first allows the application router to identify the target shard *before* issuing either the write or lookup query.
+
+### 5. Bonus Code Implementation: Read-Through Cache Layer
+- Implemented `CachedStore` in `internal/store/cache.go`, wrapping any persistent store (such as `GormDatabase`) with an in-memory cache.
+- Read operations (`Read`) inspect the cache first in $O(1)$ time, eliminating database round-trips for hot links.
+- Write operations (`Write`) update persistent storage first and populate the cache atomically upon successful write.
+- Validated with unit and concurrent race tests in `internal/store/cache_test.go`.
+
